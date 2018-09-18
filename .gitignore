@@ -5,3 +5,5 @@ dist
 .nyc_output
 env
 .poll-change-timestamp.json
+fetched.json
+src/helmet.js
