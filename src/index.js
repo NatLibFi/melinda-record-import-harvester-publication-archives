@@ -71,6 +71,18 @@ async function run() {
 		'RECORD_IMPORT_API_PROFILE'
 	]);
 
+	const OAIEndpoints = [
+		{ OAI: 'http://tampub.uta.fi/oai/request', metadata: 'kk'},	 	 
+		{ OAI: 'http://www.doria.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://utupub.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://lauda.ulapland.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://www.julkari.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://osuva.uwasa.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'https://julkaisut.valtioneuvosto.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://jukuri.luke.fi/oai/request', metadata: 'kk'},
+		{ OAI: 'http://www.theseus.fi/oai/request', metadata: 'kk'},
+	];
+
 	const RECORDS_FETCH_LIMIT = 1000;
 	const POLL_INTERVAL = process.env.POLL_INTERVAL || 1800000; // Default is 30 minutes
 	const CHANGE_TIMESTAMP_FILE = process.env.POLL_CHANGE_TIMESTAMP_FILE || path.resolve(__dirname, '..', '.poll-change-timestamp.json');
@@ -90,24 +102,25 @@ async function run() {
 		process.exit(-1);
 	}
 
-	async function processRecords(authorizationToken, pollChangeTime) {
+	async function processRecords(pollChangeTime) {
 		pollChangeTime = pollChangeTime || getPollChangeTime();
-		// AuthorizationToken = await validateAuthorizationToken(authorizationToken); // eslint-disable-line require-atomic-updates
-
+		
 		logger.log('debug', `Fetching records created after ${pollChangeTime.format()}`);
 
-		const {timeBeforeFetching, records} = await fetchRecords();
+		const timeBeforeFetching = await fetchRecords(0, null, [], pollChangeTime);
 
+		console.log("Checking out records")
 		if (records.length > 0) {
 			await sendRecords(records);
 		}
 
 		logger.log('debug', `Waiting ${POLL_INTERVAL / 1000} seconds before polling again`);
+		console.log("Waiting " + POLL_INTERVAL / 1000 + " seconds before polling again")
 		await setTimeoutPromise(POLL_INTERVAL);
 
 		writePollChangeTimestamp(timeBeforeFetching);
 
-		// Return processRecords(authorizationToken, timeBeforeFetching.add(1, 'seconds'));
+		return processRecords(timeBeforeFetching.add(1, 'seconds'));
 
 		function getPollChangeTime() {
 			if (fs.existsSync(CHANGE_TIMESTAMP_FILE)) {
@@ -128,28 +141,10 @@ async function run() {
 			}));
 		}
 
-		// Async function validateAuthorizationToken(token) {
-		// 	if (token) {
-		// 		const response = await fetch(`${process.env.MELINDA_API_URL}/info/token`);
-		// 		if (response.status === HttpStatusCodes.OK) {
-		// 			return token;
-		// 		}
-		// 	}
-
-		// 	return authenticate();
-
-		// 	async function authenticate() {
-		// 		const credentials = `${process.env.MELINDA_API_KEY}:${process.env.MELINDA_API_SECRET}`;
-		// 		const response = await fetch(`${process.env.MELINDA_API_URL}/token`, {method: 'POST', headers: {
-		// 			Authorization: `Basic ${Buffer.from(credentials).toString('base64')}`
-		// 		}});
-
-		// 		const body = await response.json();
-		// 		return body.access_token;
-		// 	}
-		// }
-		async function fetchRecords(token, records = [], timeBeforeFetching) {
-			const url = new URL(`http://tampub.uta.fi/oai/request`);
+		async function fetchRecords(index, token, records = [], timeBeforeFetching) {
+			console.log("--------------------------");
+			console.log("OAI index: ", index, " length: ", OAIEndpoints.length); //: ", OAIEndpoints, "
+			const url = new URL(OAIEndpoints[index].OAI);
 
 			if(token){
 				url.search = new URLSearchParams({
@@ -159,14 +154,12 @@ async function run() {
 			}else{
 				url.search = new URLSearchParams({
 					verb: 'ListRecords',
-					from: '2016-03-20T20:30:00Z',
-					metadataPrefix: 'kk'
+					from: '2018-09-10T20:30:00Z',
+					metadataPrefix: OAIEndpoints[index].metadata
 				});
 			}
 
 			logger.log('debug', url.toString());
-
-			timeBeforeFetching = records.length > 0 ? timeBeforeFetching : moment();
 
 			var response = await fetch(url.toString());
  
@@ -179,40 +172,50 @@ async function run() {
 					result = await response.text();
 				}
 	
+				//Filter out all records that do not have qualifier="available" in some field
 				var patterns = ['x:metadata[not(x:field[@qualifier="available"])]/../..'];
-				var namespaces = {//title[@lang='en']	
+				var namespaces = {
 					x: 'http://kk/1.0',
 				};
-	
 				filterxml(result, patterns, namespaces, function (err, xmlOut) {
 					if (err) { throw err; }
-					// console.log("xmlOut: ", xmlOut);
 					validXML = xmlOut;
 				});
 
-				// console.log("---------------------------------------");
-				// console.log("validXML: ", validXML, typeof(validXML))
+				//Check out how many records were fetched and save possible resumption token
 				var resumptionToken = null;
+				var concatRecords = [];
 				parser.parseString(validXML, function (err, result) {
 					try{
-						var amountRecods = result['OAI-PMH'].ListRecords[0].record.length;
-						resumptionToken = result['OAI-PMH'].ListRecords[0].resumptionToken;
-						console.log("length: ", amountRecods);
-						logger.log('debug', `Retrieved ${amountRecods} records`);
+						if( result['OAI-PMH'].ListRecords ){
+							concatRecords = records.concat(result['OAI-PMH'].ListRecords[0].record)
+							var amountRecords = result['OAI-PMH'].ListRecords[0].record.length;
+							logger.log('debug', `Retrieved ${amountRecords} records`);
+
+							resumptionToken = result['OAI-PMH'].ListRecords[0].resumptionToken;
+						}
 						console.log("Resumption: ", resumptionToken)
+
 					}catch(e){
 						console.log("Failed something in XML parsing: ", e);
-						logger.err(e);
+						logger.error(e);
 					}
 				});
 
-				
-				if (resumptionToken) {
-					return fetchRecords(resumptionToken[0]['_'], [], timeBeforeFetching);
+				// If more records to be fetched from endpoint do so with resumption token, if not move to next endpoint 
+				if (resumptionToken &&  resumptionToken[0] && resumptionToken[0]['_']) {
+					return fetchRecords(index, resumptionToken[0]['_'], concatRecords, timeBeforeFetching);
+				}else{
+					console.log("Moving to next, found records: ", concatRecords.length);
+					sendRecords(concatRecords);
+					index++;
+					if(index === OAIEndpoints.length){
+						timeBeforeFetching = records.length > 0 ? timeBeforeFetching : moment();
+						console.log("Time: ", timeBeforeFetching);
+						return timeBeforeFetching;
+					}
+					return fetchRecords(index, null, [], timeBeforeFetching);
 				}
-
-				// console.log("Result: ", result);
-				return {records: records.concat(result.entries), timeBeforeFetching};
 			}
 
 			if (response.status === HttpStatusCodes.NOT_FOUND) {
@@ -221,38 +224,7 @@ async function run() {
 			}
 
 			throw new Error(`Received HTTP ${response.status} ${response.statusText}`);
-
-			function generateTimespan() {
-				return `[${pollChangeTime.format()},]`;
-			}
 		}
-
-		// Function filterRecords(record) {
-		// 	record.varFields.array.forEach(element => {
-		// 		console.log('E: ', element);
-		// 	});
-		// 	// Const leader = record.varFields.find(f => f.fieldTag === '_');
-
-		// 	// if (leader && !['c', 'd', 'j'].includes(leader.content)) {
-		// 	// 	if (record.varFields.some(check09)) {
-		// 	// 		return false;
-		// 	// 	}
-
-		// 	// 	const f007 = record.varFields.find(f => f.marcTag === '007');
-
-		// 	// 	if (!f007 && MATERIAL_TYPES_DROP_PATTERN.test(record.materialType.code)) {
-		// 	// 		return false;
-		// 	// 	}
-
-		// 	// 	return true;
-		// 	// }
-
-		// 	// function check09(field) {
-		// 	// 	return /^09[12345]$/.test(field.marcTag) && field.subfields.find(sf => {
-		// 	// 		return /^78/.test(sf.content);
-		// 	// 	});
-		// 	// }
-		// }
 
 		async function sendRecords(records) { // eslint-disable-line require-await
 			fs.writeFileSync('fetched.json', JSON.stringify(records, undefined, 2));
@@ -262,7 +234,70 @@ async function run() {
 	}
 }
 
+// //Concatting records to previous records
+// if(amountRecords && amountRecords > 0){
+// 	console.log("Records: ", records, typeof(records));
+// 	console.log("Concatting: ", result['OAI-PMH'].ListRecords[0].record);
+// 	var newArr = records.concat(result['OAI-PMH'].ListRecords[0].record)
+// 	console.log("Records: ", newArr)
+// }
 
 // var patterns = ['x:metadata[not(x:field[@qualifier="available"])]'];
 // var patterns = ['x:metadata/x:field[@qualifier="available"]/../../..']; //Removes all records containing qualifier="available"
 // var patterns = ['x:field[@qualifier="available"]']; //Removes single field
+
+// index++;
+// if(index >= OAIEndpoints.length) index = 0;
+// console.log("Moving to next: ", index);
+// return fetchRecords(index, null, [], timeBeforeFetching);
+// console.log("Result: ", result);
+// return {records: records.concat(result.entries), timeBeforeFetching};
+
+
+// Function filterRecords(record) {
+// 	record.varFields.array.forEach(element => {
+// 		console.log('E: ', element);
+// 	});
+// 	// Const leader = record.varFields.find(f => f.fieldTag === '_');
+
+// 	// if (leader && !['c', 'd', 'j'].includes(leader.content)) {
+// 	// 	if (record.varFields.some(check09)) {
+// 	// 		return false;
+// 	// 	}
+
+// 	// 	const f007 = record.varFields.find(f => f.marcTag === '007');
+
+// 	// 	if (!f007 && MATERIAL_TYPES_DROP_PATTERN.test(record.materialType.code)) {
+// 	// 		return false;
+// 	// 	}
+
+// 	// 	return true;
+// 	// }
+
+// 	// function check09(field) {
+// 	// 	return /^09[12345]$/.test(field.marcTag) && field.subfields.find(sf => {
+// 	// 		return /^78/.test(sf.content);
+// 	// 	});
+// 	// }
+// }
+
+// Async function validateAuthorizationToken(token) {
+// 	if (token) {
+// 		const response = await fetch(`${process.env.MELINDA_API_URL}/info/token`);
+// 		if (response.status === HttpStatusCodes.OK) {
+// 			return token;
+// 		}
+// 	}
+
+// 	return authenticate();
+
+// 	async function authenticate() {
+// 		const credentials = `${process.env.MELINDA_API_KEY}:${process.env.MELINDA_API_SECRET}`;
+// 		const response = await fetch(`${process.env.MELINDA_API_URL}/token`, {method: 'POST', headers: {
+// 			Authorization: `Basic ${Buffer.from(credentials).toString('base64')}`
+// 		}});
+
+// 		const body = await response.json();
+// 		return body.access_token;
+// 	}
+// }
