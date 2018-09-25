@@ -27,21 +27,6 @@
 */
 
 'use strict';
-// Haravointi tapahtuu [OAI-PMH -rajapinnalla|https://www.openarchives.org/OAI/openarchivesprotocol.html].
-// Kyseessä on HTTP-rajapinta, jolla tietueita haetaan aikaleiman perusteella. Rajapinnan aikaleimarajaus ei
-// kuitenkaan riitä setin kunnolliseen rajaukseen vaan varsinainen rajaus tehdään tietueen **date"qualifier="available** -kentän perusteella.
-
-// > Tietueita haravoidaan rajapinnan **ListRecords** kutsulla. Vastaukseen ei välttämättä sisälly kaikki osuvat
-// tietueet vaan loput täytyy hakea **resumptionToken** parametrin avulla.
-
-// > Haravointisovelluksen on tarkoitus olla päällä jatkuvasti ja sen pitää tallentaa edellisen haun aikaleima
-// tiedostoon, jotta haravointia voidaan jatkaa oikeasta kohdasta uudelleenkäynnistyksen jälkeen.
-
-// > Vastaavanlainen toteutus on tehty [Helmetille|https://github.com/NatLibFi/melinda-record-import-harvesterhelmet].
-
-// > [DC -> MARC -mäppäys|https://www.kiwi.fi/x/D43VBQ]
-
-// > [Haravoitavat kohteet|https://www.kiwi.fi/display/alephkvp/Melindaa+varten+haravoitavien+julkaisuarkistojen+OAI-rajapinnat]
 
 import fs from 'fs';
 import xml2js from 'xml2js';
@@ -54,9 +39,6 @@ import nodeUtils from 'util';
 import {CommonUtils as Utils} from '@natlibfi/melinda-record-import-commons';
 import filterxml from 'filterxml';
 
-//Development XML
-import {shortValidXML, shortExtraXML} from './dummyXML.js';
-
 run();
 
 async function run() {
@@ -64,26 +46,16 @@ async function run() {
 	Utils.checkEnv([
 		// 'MELINDA_API_KEY',
 		// 'MELINDA_API_SECRET',
-		'MELINDA_API_URL',
-		'RECORD_IMPORT_API_URL',
-		'RECORD_IMPORT_API_USERNAME',
-		'RECORD_IMPORT_API_PASSWORD',
-		'RECORD_IMPORT_API_PROFILE'
+		'HARVESTING_API_URL',
+		'HARVESTING_API_METADATA',
+		'HARVESTING_API_FILTER',
+		'HARVESTING_API_FILTER_NAMESPACE',
+		// 'RECORD_IMPORT_API_URL',
+		// 'RECORD_IMPORT_API_USERNAME',
+		// 'RECORD_IMPORT_API_PASSWORD',
+		// 'RECORD_IMPORT_API_PROFILE'
 	]);
 
-	const OAIEndpoints = [
-		{ OAI: 'http://tampub.uta.fi/oai/request', metadata: 'kk'},	 	 
-		{ OAI: 'http://www.doria.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://utupub.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://lauda.ulapland.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://www.julkari.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://osuva.uwasa.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'https://julkaisut.valtioneuvosto.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://jukuri.luke.fi/oai/request', metadata: 'kk'},
-		{ OAI: 'http://www.theseus.fi/oai/request', metadata: 'kk'},
-	];
-
-	const RECORDS_FETCH_LIMIT = 1000;
 	const POLL_INTERVAL = process.env.POLL_INTERVAL || 1800000; // Default is 30 minutes
 	const CHANGE_TIMESTAMP_FILE = process.env.POLL_CHANGE_TIMESTAMP_FILE || path.resolve(__dirname, '..', '.poll-change-timestamp.json');
 	const setTimeoutPromise = nodeUtils.promisify(setTimeout);
@@ -104,24 +76,20 @@ async function run() {
 
 	async function processRecords(pollChangeTime) {
 		pollChangeTime = pollChangeTime || getPollChangeTime();
-		
 		logger.log('debug', `Fetching records created after ${pollChangeTime.format()}`);
 
-		const timeBeforeFetching = await fetchRecords(0, null, [], pollChangeTime);
-
-		console.log("Checking out records")
-		if (records.length > 0) {
-			await sendRecords(records);
-		}
-
-		logger.log('debug', `Waiting ${POLL_INTERVAL / 1000} seconds before polling again`);
-		console.log("Waiting " + POLL_INTERVAL / 1000 + " seconds before polling again")
-		await setTimeoutPromise(POLL_INTERVAL);
+		const timeBeforeFetching = moment();
+		await fetchRecords(0, null, [], pollChangeTime);
 
 		writePollChangeTimestamp(timeBeforeFetching);
 
-		return processRecords(timeBeforeFetching.add(1, 'seconds'));
+		logger.log('debug', `--- Waiting ${POLL_INTERVAL / 1000} seconds before polling again ---`);
+		await setTimeoutPromise(POLL_INTERVAL);
 
+		return processRecords(timeBeforeFetching);
+
+		////////////////////////
+		// Supporting functions
 		function getPollChangeTime() {
 			if (fs.existsSync(CHANGE_TIMESTAMP_FILE)) {
 				const data = JSON.parse(fs.readFileSync(CHANGE_TIMESTAMP_FILE, 'utf8'));
@@ -136,15 +104,16 @@ async function run() {
 		}
 
 		function writePollChangeTimestamp(time) {
+			const timestamp = time.format();
+			logger.log('debug', `Writing timestamp ${timestamp}`);
+
 			fs.writeFileSync(CHANGE_TIMESTAMP_FILE, JSON.stringify({
-				timestamp: time.format()
+				timestamp: timestamp
 			}));
 		}
 
-		async function fetchRecords(index, token, records = [], timeBeforeFetching) {
-			console.log("--------------------------");
-			console.log("OAI index: ", index, " length: ", OAIEndpoints.length); //: ", OAIEndpoints, "
-			const url = new URL(OAIEndpoints[index].OAI);
+		async function fetchRecords(index, token, oldRecords = [], timeBeforeFetching) {
+			const url = new URL(process.env.HARVESTING_API_URL);
 
 			if(token){
 				url.search = new URLSearchParams({
@@ -154,73 +123,78 @@ async function run() {
 			}else{
 				url.search = new URLSearchParams({
 					verb: 'ListRecords',
-					from: '2018-09-10T20:30:00Z',
-					metadataPrefix: OAIEndpoints[index].metadata
+					from: getPollChangeTime().utc().format(),
+					metadataPrefix: process.env.HARVESTING_API_METADATA
 				});
 			}
 
 			logger.log('debug', url.toString());
-
+			
 			var response = await fetch(url.toString());
  
 			if (response.status === HttpStatusCodes.OK) {
-				var result = null;
+				const result = await response.text();
 				var validXML = null;
-				if( process.env.TEST === 'true' ){
-					result = shortExtraXML;
-				}else{
-					result = await response.text();
-				}
-	
-				//Filter out all records that do not have qualifier="available" in some field
-				var patterns = ['x:metadata[not(x:field[@qualifier="available"])]/../..'];
-				var namespaces = {
-					x: 'http://kk/1.0',
+
+				//Filter out all records that do not have example '@qualifier="available"' in some field 
+				//or does not have two fields '@qualifier="issued" and @value>"2018"'
+				const patterns = ['x:metadata[not(x:field[' + process.env.HARVESTING_API_FILTER + '])]/../..'];
+				const namespaces = {
+					x: process.env.HARVESTING_API_FILTER_NAMESPACE,
 				};
-				filterxml(result, patterns, namespaces, function (err, xmlOut) {
+				filterxml(result, patterns, namespaces, function (err, xmlOut, data) {
 					if (err) { throw err; }
 					validXML = xmlOut;
 				});
 
-				//Check out how many records were fetched and save possible resumption token
+				//Check out new records and save possible resumption token
+				var newRecords = [];
 				var resumptionToken = null;
-				var concatRecords = [];
-				parser.parseString(validXML, function (err, result) {
+				var amountRecords = 0;
+				parser.parseString(validXML, function (err, parsed) {
 					try{
-						if( result['OAI-PMH'].ListRecords ){
-							concatRecords = records.concat(result['OAI-PMH'].ListRecords[0].record)
-							var amountRecords = result['OAI-PMH'].ListRecords[0].record.length;
-							logger.log('debug', `Retrieved ${amountRecords} records`);
+						if( parsed['OAI-PMH'].ListRecords && parsed['OAI-PMH'].ListRecords[0]){
+							// //Check how many elements are excluded
+							// parser.parseString(result, function (err, res) {
+							// 	console.log("Excluded: ", res['OAI-PMH'].ListRecords[0].record.length - parsed['OAI-PMH'].ListRecords[0].record.length);
+							// });
 
-							resumptionToken = result['OAI-PMH'].ListRecords[0].resumptionToken;
+							//record can be empty because of filtering
+							if(parsed['OAI-PMH'].ListRecords[0].record){
+								newRecords = parsed['OAI-PMH'].ListRecords[0].record;
+								amountRecords = parsed['OAI-PMH'].ListRecords[0].record.length;
+							}
+							logger.log('debug', `Retrieved ${amountRecords} valid records`);
+
+							resumptionToken = parsed['OAI-PMH'].ListRecords[0].resumptionToken;
+							logger.log('debug', `Resumption: ${JSON.stringify(resumptionToken)}`)
 						}
-						console.log("Resumption: ", resumptionToken)
-
 					}catch(e){
-						console.log("Failed something in XML parsing: ", e);
 						logger.error(e);
 					}
 				});
 
-				// If more records to be fetched from endpoint do so with resumption token, if not move to next endpoint 
-				if (resumptionToken &&  resumptionToken[0] && resumptionToken[0]['_']) {
-					return fetchRecords(index, resumptionToken[0]['_'], concatRecords, timeBeforeFetching);
+				//Combine old and new records
+				const records = oldRecords.concat(newRecords);
+
+				// If more records to be fetched from endpoint do so with resumption token
+				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
+					return fetchRecords(index, resumptionToken[0]['_'], records, timeBeforeFetching);
+				
+				// If not: send (if any to send) and return
 				}else{
-					console.log("Moving to next, found records: ", concatRecords.length);
-					sendRecords(concatRecords);
-					index++;
-					if(index === OAIEndpoints.length){
-						timeBeforeFetching = records.length > 0 ? timeBeforeFetching : moment();
-						console.log("Time: ", timeBeforeFetching);
-						return timeBeforeFetching;
+					if(records.length > 0 ){
+						logger.log('debug', `Total ${records.length} valid records found, sending`);
+						sendRecords(records);
+					}else{
+						logger.log('debug', `No records found`);
 					}
-					return fetchRecords(index, null, [], timeBeforeFetching);
+					return;
 				}
 			}
 
 			if (response.status === HttpStatusCodes.NOT_FOUND) {
-				logger.log('debug', 'No records found');
-				return {records, timeBeforeFetching};
+				return;
 			}
 
 			throw new Error(`Received HTTP ${response.status} ${response.statusText}`);
@@ -229,75 +203,19 @@ async function run() {
 		async function sendRecords(records) { // eslint-disable-line require-await
 			fs.writeFileSync('fetched.json', JSON.stringify(records, undefined, 2));
 			// Use Record import API to create Blobs
-			logger.log('info', `Created new blob x containing ${records.length} records`);
+			logger.log('info', `*Created new temp blob to file *fetched.json* containing ${records.length} records`);
 		}
 	}
 }
 
-// //Concatting records to previous records
-// if(amountRecords && amountRecords > 0){
-// 	console.log("Records: ", records, typeof(records));
-// 	console.log("Concatting: ", result['OAI-PMH'].ListRecords[0].record);
-// 	var newArr = records.concat(result['OAI-PMH'].ListRecords[0].record)
-// 	console.log("Records: ", newArr)
-// }
+//Filter dummys for testing filtering
+// //Development XML
+// import {shortValidXML, shortExtraXML} from './dummyXML.js';
 
-// var patterns = ['x:metadata[not(x:field[@qualifier="available"])]'];
-// var patterns = ['x:metadata/x:field[@qualifier="available"]/../../..']; //Removes all records containing qualifier="available"
-// var patterns = ['x:field[@qualifier="available"]']; //Removes single field
-
-// index++;
-// if(index >= OAIEndpoints.length) index = 0;
-// console.log("Moving to next: ", index);
-// return fetchRecords(index, null, [], timeBeforeFetching);
-// console.log("Result: ", result);
-// return {records: records.concat(result.entries), timeBeforeFetching};
-
-
-// Function filterRecords(record) {
-// 	record.varFields.array.forEach(element => {
-// 		console.log('E: ', element);
-// 	});
-// 	// Const leader = record.varFields.find(f => f.fieldTag === '_');
-
-// 	// if (leader && !['c', 'd', 'j'].includes(leader.content)) {
-// 	// 	if (record.varFields.some(check09)) {
-// 	// 		return false;
-// 	// 	}
-
-// 	// 	const f007 = record.varFields.find(f => f.marcTag === '007');
-
-// 	// 	if (!f007 && MATERIAL_TYPES_DROP_PATTERN.test(record.materialType.code)) {
-// 	// 		return false;
-// 	// 	}
-
-// 	// 	return true;
-// 	// }
-
-// 	// function check09(field) {
-// 	// 	return /^09[12345]$/.test(field.marcTag) && field.subfields.find(sf => {
-// 	// 		return /^78/.test(sf.content);
-// 	// 	});
-// 	// }
-// }
-
-// Async function validateAuthorizationToken(token) {
-// 	if (token) {
-// 		const response = await fetch(`${process.env.MELINDA_API_URL}/info/token`);
-// 		if (response.status === HttpStatusCodes.OK) {
-// 			return token;
-// 		}
-// 	}
-
-// 	return authenticate();
-
-// 	async function authenticate() {
-// 		const credentials = `${process.env.MELINDA_API_KEY}:${process.env.MELINDA_API_SECRET}`;
-// 		const response = await fetch(`${process.env.MELINDA_API_URL}/token`, {method: 'POST', headers: {
-// 			Authorization: `Basic ${Buffer.from(credentials).toString('base64')}`
-// 		}});
-
-// 		const body = await response.json();
-// 		return body.access_token;
-// 	}
+// var result = null;
+// var validXML = null;
+// if( process.env.TEST === 'true' ){
+// 	result = shortExtraXML;
+// }else{
+// 	result = await response.text();
 // }
