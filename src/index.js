@@ -79,9 +79,16 @@ async function run() {
 		logger.log('debug', `Fetching records created after ${pollChangeTime.format()}`);
 
 		const timeBeforeFetching = moment();
-		await fetchRecords(0, null, [], pollChangeTime);
+		try{
+			await fetchRecords(0, null, [], pollChangeTime);
+			//writePollChangeTimestamp(timeBeforeFetching);
 
-		writePollChangeTimestamp(timeBeforeFetching);
+		}catch(e){
+			console.log("Catched error: ", e);
+			//XML special char case with datestamp: {"timestamp":"2018-04-30T10:52:32+02:00"}
+			//How harvester is supposed to recover from errors?
+			//Now it just ignores error and doesn't write pollChangeTimestamp -> tries again after timeout
+		}
 
 		logger.log('debug', `--- Waiting ${POLL_INTERVAL / 1000} seconds before polling again ---`);
 		await setTimeoutPromise(POLL_INTERVAL);
@@ -134,18 +141,23 @@ async function run() {
  
 			if (response.status === HttpStatusCodes.OK) {
 				const result = await response.text();
+				var validXMLTemp = null;
 				var validXML = null;
 
-				//Filter out all records that do not have example '@qualifier="available"' in some field 
-				//or does not have two fields '@qualifier="issued" and @value>"2018"'
-				const patterns = ['x:metadata[not(x:field[' + process.env.HARVESTING_API_FILTER + '])]/../..'];
-				const namespaces = {
-					x: process.env.HARVESTING_API_FILTER_NAMESPACE,
-				};
-				filterxml(result, patterns, namespaces, function (err, xmlOut, data) {
+				//Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
+				//Filter out all records with header that have status="deleted"
+				var patterns = ['x:metadata[not(x:field[' + process.env.HARVESTING_API_FILTER + '])]/../..'];
+				filterxml(result, patterns, {x: process.env.HARVESTING_API_FILTER_NAMESPACE}, function (err, xmlOut, data) {
+					if (err) { throw err; }
+					validXMLTemp = xmlOut; 
+				}); 
+				
+				//Filter out all records with header that have status="deleted"
+				patterns = ['x:header[@status="deleted"]/..'];
+				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, function (err, xmlOut, data) {
 					if (err) { throw err; }
 					validXML = xmlOut;
-				});
+				}); 
 
 				//Check out new records and save possible resumption token
 				var newRecords = [];
@@ -179,8 +191,9 @@ async function run() {
 
 				// If more records to be fetched from endpoint do so with resumption token
 				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
-					return fetchRecords(index, resumptionToken[0]['_'], records, timeBeforeFetching);
-				
+					//return fetchRecords(index, resumptionToken[0]['_'], records, timeBeforeFetching);
+					logger.log('Skipping resumption token for now')
+					return;
 				// If not: send (if any to send) and return
 				}else{
 					if(records.length > 0 ){
@@ -191,6 +204,10 @@ async function run() {
 					}
 					return;
 				}
+			}else{
+				logger.error("Response not ok, status: ", response.status);
+				const result = await response.text();
+				logger.error(result);
 			}
 
 			if (response.status === HttpStatusCodes.NOT_FOUND) {
