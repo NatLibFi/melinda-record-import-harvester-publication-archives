@@ -7,3 +7,5 @@ env
 .poll-change-timestamp.json
 fetched*
 src/helmet.js
+src/config.js
+src/harvestOriginal.js

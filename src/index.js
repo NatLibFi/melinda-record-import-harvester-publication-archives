@@ -4,7 +4,7 @@
 *
 * Helmet record harvester for the Melinda record batch import system
 *
-* Copyright (C) 2018 University Of Helsinki (The National Library Of Finland)
+* Copyright (C) 2019 University Of Helsinki (The National Library Of Finland)
 *
 * This file is part of melinda-record-import-harvester-publication-archives
 *
@@ -28,211 +28,28 @@
 
 'use strict';
 
-import fs from 'fs';
-import xml2js from 'xml2js';
-import path from 'path';
-import {URL, URLSearchParams} from 'url';
-import moment from 'moment';
-import fetch from 'node-fetch';
-import HttpStatusCodes from 'http-status-codes';
-import nodeUtils from 'util';
-import {CommonUtils as Utils} from '@natlibfi/melinda-record-import-commons';
-import filterxml from 'filterxml';
+import {Harvester} from '@natlibfi/melinda-record-import-commons';
+import createHarvestCallback from './harvest';
 
-run();
+const {startHarvester} = Harvester;
 
-async function run() {
-	Utils.registerSignalHandlers();
-	Utils.checkEnv([
-		// 'MELINDA_API_KEY',
-		// 'MELINDA_API_SECRET',
-		'HARVESTING_API_URL',
-		'HARVESTING_API_METADATA',
-		'HARVESTING_API_FILTER',
-		'HARVESTING_API_FILTER_NAMESPACE',
-		// 'RECORD_IMPORT_API_URL',
-		// 'RECORD_IMPORT_API_USERNAME',
-		// 'RECORD_IMPORT_API_PASSWORD',
-		// 'RECORD_IMPORT_API_PROFILE'
-	]);
+import {
+	HARVESTING_API_URL, HARVESTING_API_METADATA, HARVESTING_API_FILTER,
+	HARVESTING_API_FILTER_NAMESPACE, RECORDS_FETCH_LIMIT, POLL_INTERVAL,
+	POLL_CHANGE_TIMESTAMP, CHANGE_TIMESTAMP_FILE
+} from './config';
 
-	const POLL_INTERVAL = process.env.POLL_INTERVAL || 1800000; // Default is 30 minutes
-	const CHANGE_TIMESTAMP_FILE = process.env.POLL_CHANGE_TIMESTAMP_FILE || path.resolve(__dirname, '..', '.poll-change-timestamp.json');
-	const setTimeoutPromise = nodeUtils.promisify(setTimeout);
-
-	const logger = Utils.createLogger();
-	const stopHealthCheckService = Utils.startHealthCheckService(process.env.HEALTH_CHECK_PORT);
-	const parser = new xml2js.Parser();
-	try {
-		logger.log('info', 'Starting melinda-record-import-harvester-publication-archives');
-		await processRecords();
-		stopHealthCheckService();
-		process.exit();
-	} catch (err) {
-		stopHealthCheckService();
-		logger.error(err);
-		process.exit(-1);
-	}
-
-	async function processRecords(pollChangeTime) {
-		pollChangeTime = pollChangeTime || getPollChangeTime();
-		logger.log('debug', `Fetching records created after ${pollChangeTime.format()}`);
-
-		const timeBeforeFetching = moment();
-		try{
-			await fetchRecords(0, null, [], pollChangeTime);
-			//writePollChangeTimestamp(timeBeforeFetching);
-
-		}catch(e){
-			console.log("Catched error: ", e);
-			//XML special char case with datestamp: {"timestamp":"2018-04-30T10:52:32+02:00"}
-			//How harvester is supposed to recover from errors?
-			//Now it just ignores error and doesn't write pollChangeTimestamp -> tries again after timeout
-		}
-
-		logger.log('debug', `--- Waiting ${POLL_INTERVAL / 1000} seconds before polling again ---`);
-		await setTimeoutPromise(POLL_INTERVAL);
-
-		return processRecords(timeBeforeFetching);
-
-		////////////////////////
-		// Supporting functions
-		function getPollChangeTime() {
-			if (fs.existsSync(CHANGE_TIMESTAMP_FILE)) {
-				const data = JSON.parse(fs.readFileSync(CHANGE_TIMESTAMP_FILE, 'utf8'));
-				return moment(data.timestamp);
-			}
-
-			if (process.env.POLL_CHANGE_TIMESTAMP) {
-				return moment(process.env.POLL_CHANGE_TIMESTAMP);
-			}
-
-			return moment();
-		}
-
-		function writePollChangeTimestamp(time) {
-			const timestamp = time.format();
-			logger.log('debug', `Writing timestamp ${timestamp}`);
-
-			fs.writeFileSync(CHANGE_TIMESTAMP_FILE, JSON.stringify({
-				timestamp: timestamp
-			}));
-		}
-
-		async function fetchRecords(index, token, oldRecords = [], timeBeforeFetching) {
-			const url = new URL(process.env.HARVESTING_API_URL);
-
-			if(token){
-				url.search = new URLSearchParams({
-					verb: 'ListRecords',
-					resumptionToken: token
-				});
-			}else{
-				url.search = new URLSearchParams({
-					verb: 'ListRecords',
-					from: getPollChangeTime().utc().format(),
-					metadataPrefix: process.env.HARVESTING_API_METADATA
-				});
-			}
-
-			logger.log('debug', url.toString());
-			
-			var response = await fetch(url.toString());
- 
-			if (response.status === HttpStatusCodes.OK) {
-				const result = await response.text();
-				var validXMLTemp = null;
-				var validXML = null;
-
-				//Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				//Filter out all records with header that have status="deleted"
-				var patterns = ['x:metadata[not(x:field[' + process.env.HARVESTING_API_FILTER + '])]/../..'];
-				filterxml(result, patterns, {x: process.env.HARVESTING_API_FILTER_NAMESPACE}, function (err, xmlOut, data) {
-					if (err) { throw err; }
-					validXMLTemp = xmlOut; 
-				}); 
-				
-				//Filter out all records with header that have status="deleted"
-				patterns = ['x:header[@status="deleted"]/..'];
-				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, function (err, xmlOut, data) {
-					if (err) { throw err; }
-					validXML = xmlOut;
-				}); 
-
-				//Check out new records and save possible resumption token
-				var newRecords = [];
-				var resumptionToken = null;
-				var amountRecords = 0;
-				parser.parseString(validXML, function (err, parsed) {
-					try{
-						if( parsed['OAI-PMH'].ListRecords && parsed['OAI-PMH'].ListRecords[0]){
-							// //Check how many elements are excluded
-							// parser.parseString(result, function (err, res) {
-							// 	console.log("Excluded: ", res['OAI-PMH'].ListRecords[0].record.length - parsed['OAI-PMH'].ListRecords[0].record.length);
-							// });
-
-							//record can be empty because of filtering
-							if(parsed['OAI-PMH'].ListRecords[0].record){
-								newRecords = parsed['OAI-PMH'].ListRecords[0].record;
-								amountRecords = parsed['OAI-PMH'].ListRecords[0].record.length;
-							}
-							logger.log('debug', `Retrieved ${amountRecords} valid records`);
-
-							resumptionToken = parsed['OAI-PMH'].ListRecords[0].resumptionToken;
-							logger.log('debug', `Resumption: ${JSON.stringify(resumptionToken)}`)
-						}
-					}catch(e){
-						logger.error(e);
-					}
-				});
-
-				//Combine old and new records
-				const records = oldRecords.concat(newRecords);
-
-				// If more records to be fetched from endpoint do so with resumption token
-				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
-					//return fetchRecords(index, resumptionToken[0]['_'], records, timeBeforeFetching);
-					logger.log('Skipping resumption token for now')
-					return;
-				// If not: send (if any to send) and return
-				}else{
-					if(records.length > 0 ){
-						logger.log('debug', `Total ${records.length} valid records found, sending`);
-						sendRecords(records);
-					}else{
-						logger.log('debug', `No records found`);
-					}
-					return;
-				}
-			}else{
-				logger.error("Response not ok, status: ", response.status);
-				const result = await response.text();
-				logger.error(result);
-			}
-
-			if (response.status === HttpStatusCodes.NOT_FOUND) {
-				return;
-			}
-
-			throw new Error(`Received HTTP ${response.status} ${response.statusText}`);
-		}
-
-		async function sendRecords(records) { // eslint-disable-line require-await
-			fs.writeFileSync('fetched.json', JSON.stringify(records, undefined, 2));
-			// Use Record import API to create Blobs
-			logger.log('info', `*Created new temp blob to file *fetched.json* containing ${records.length} records`);
-		}
-	}
-}
-
-//Filter dummys for testing filtering
-// //Development XML
-// import {shortValidXML, shortExtraXML} from './dummyXML.js';
-
-// var result = null;
-// var validXML = null;
-// if( process.env.TEST === 'true' ){
-// 	result = shortExtraXML;
-// }else{
-// 	result = await response.text();
-// }
+startHarvester(async ({recordsCallback}) => {
+	console.log('MELINDA_API_URL', HARVESTING_API_URL);
+	return createHarvestCallback({
+		recordsCallback,
+		harvestURL: HARVESTING_API_URL,
+		harvestMetadata: HARVESTING_API_METADATA,
+		harvestFilter: HARVESTING_API_FILTER,
+		harvestFilterNamespace: HARVESTING_API_FILTER_NAMESPACE,
+		recordsFetchLimit: RECORDS_FETCH_LIMIT,
+		pollInterval: POLL_INTERVAL,
+		pollChangeTimestamp: POLL_CHANGE_TIMESTAMP,
+		changeTimestampFile: CHANGE_TIMESTAMP_FILE
+	});
+});
