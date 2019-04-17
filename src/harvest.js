@@ -39,9 +39,10 @@ import filterxml from 'filterxml';
 
 const {createLogger} = Utils;
 
-export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterNamespace, recordsFetchLimit, pollInterval, pollChangeTimestamp, changeTimestampFile, earliestCatalogTime = moment(), onlyOnce = false}) {
+export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, earliestCatalogTime = moment(), onlyOnce = false}) {
 	const logger = createLogger();
 	const parser = new xml2js.Parser();
+	var failedQueries = 0;
 
 	return process();
 
@@ -91,8 +92,19 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 					metadataPrefix: harvestMetadata
 				});
 			}
+			try{
+				var response = await fetch(url.toString());
+			}catch(e){
+				logger.log('warn', `Query failed: ${e}`);
+				failedQueries++;
+				if(failedQueries >= 5){
+					logger.log('error', `5 failed queries, quitting`);
+					return;
+				}
+				return harvest(token, oldRecords)
+			}
 
-			var response = await fetch(url.toString());
+			failedQueries = 0;
 
 			if (response.status === HttpStatusCodes.OK) {
 				const result = await response.text();
@@ -156,6 +168,7 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 					if(records.length > 0 ){
 						logger.log('debug', `Sending: total ${records.length} valid records`);
 						try{
+							//fs.writeFileSync('fetched.json', JSON.stringify(records, undefined, 2));
 							await recordsCallback(records);
 						}catch(e){
 							logger.log('error', `Error in sending blob ${e}, timestamp not updated`);
