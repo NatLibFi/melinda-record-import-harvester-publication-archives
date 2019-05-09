@@ -42,7 +42,7 @@ const {createLogger} = Utils;
 export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, earliestCatalogTime = moment(), onlyOnce = false}) {
 	const logger = createLogger();
 	const parser = new xml2js.Parser();
-	var failedQueries = 0;
+	//var recs = []; //Functionality to save harvested records, more at lines 157-158 and 167-169
 
 	return process();
 
@@ -54,11 +54,12 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		const timeBeforeFetching = moment();
 
 		logger.log('debug', `Fetching records updated between ${pollChangeTime.format()} - ${timeBeforeFetching.format()}`);
-		await harvest(null, [], pollChangeTime);
+		await harvest(null);
 
 		if (!onlyOnce) {
 			logger.log('debug', `Waiting ${pollInterval / 1000} seconds before polling again`);
 			await setTimeoutPromise(pollInterval);
+			writePollChangeTimestamp(timeBeforeFetching);
 			return process({pollChangeTime: timeBeforeFetching.add(1, 'seconds')});
 		}
 
@@ -75,9 +76,15 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 			return moment();
 		}
 
+		function writePollChangeTimestamp(time) {
+			fs.writeFileSync(changeTimestampFile, JSON.stringify({
+				timestamp: time.format()
+			}));
+		}
+
 		//ListRecords can only fetch 100 records at the time.
 		//Each cycle concats new records to old records and passes possible resumption token to new cycle
-		async function harvest(token, oldRecords = []) {
+		async function harvest(token) {
 			const url = new URL(harvestURL);
 
 			if (token) {
@@ -92,19 +99,9 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 					metadataPrefix: harvestMetadata
 				});
 			}
-			try{
-				var response = await fetch(url.toString());
-			}catch(e){
-				logger.log('warn', `Query failed: ${e}`);
-				failedQueries++;
-				if(failedQueries >= 5){
-					logger.log('error', `5 failed queries, quitting`);
-					return;
-				}
-				return harvest(token, oldRecords)
-			}
-
-			failedQueries = 0;
+			
+			//Connection errors bleed up from here
+			var response = await fetch(url.toString());
 
 			if (response.status === HttpStatusCodes.OK) {
 				const result = await response.text();
@@ -112,7 +109,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				var validXML = null;
 
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				// Filter out all records with header that have status="deleted"
 				var patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
 				filterxml(result, patterns, {x: harvestFilterNamespace}, (err, xmlOut, data) => {
 					if (err) {
@@ -133,15 +129,16 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				});
 
 				// Check out new records and save possible resumption token
-				var newRecords = [];
-				var resumptionToken = null;
+				var records = [];
 				var amountRecords = 0;
+				var resumptionToken = null;
+
 				parser.parseString(validXML, (err, parsed) => {
 					try {
 						// record can be empty because of filtering
 						if (parsed['OAI-PMH'].ListRecords && parsed['OAI-PMH'].ListRecords[0]) {
 							if (parsed['OAI-PMH'].ListRecords[0].record) {
-								newRecords = parsed['OAI-PMH'].ListRecords[0].record;
+								records = parsed['OAI-PMH'].ListRecords[0].record;
 								amountRecords = parsed['OAI-PMH'].ListRecords[0].record.length;
 							}
 
@@ -154,46 +151,27 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 						logger.error(e);
 					}
 				});
-
-				// Combine old and new records
-				const records = oldRecords.concat(newRecords);
+				
+				// If valid records, send to saving
+				if(records.length > 0 ){
+					// var re = recs.concat(records);
+					// recs = re;
+					await recordsCallback(records);
+				}
 
 				// If more records to be fetched from endpoint do so with resumption token
 				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
 					logger.log('debug', `New harvest with token ${resumptionToken[0]['_']}`);
-					return harvest(resumptionToken[0]['_'], records);
-
-				// If not: send (if any to send) and return
-				}else{
-					if(records.length > 0 ){
-						logger.log('debug', `Sending: total ${records.length} valid records`);
-						try{
-							//fs.writeFileSync('fetched.json', JSON.stringify(records, undefined, 2));
-							await recordsCallback(records);
-						}catch(e){
-							logger.log('error', `Error in sending blob ${e}, timestamp not updated`);
-							return; //Bail out without updating PollChangeTimestamp
-						}
-					}else{
-						logger.log('debug', `Ending: no valid records found`);
-					}
-					//All went well, update timestamp
-					writePollChangeTimestamp(timeBeforeFetching);
-					return;
+					return harvest(resumptionToken[0]['_']);
 				}
+				// else{
+				// 	fs.writeFileSync('fetched.json', JSON.stringify(recs, undefined, 2));
+				// }
+			} else if (response.status === HttpStatusCodes.NOT_FOUND) {
+				Logger.log('debug', 'No records found');
 			}else{
-				logger.log('error', 'Response not ok, status: ', response.status);
-				const result = await response.text();
-				logger.log('error', result);
-
 				throw new Error(`Received HTTP ${response.status} ${response.statusText}`);
 			}
-		}
-
-		function writePollChangeTimestamp(time) {
-			fs.writeFileSync(changeTimestampFile, JSON.stringify({
-				timestamp: time.format()
-			}));
 		}
 	}
 }
