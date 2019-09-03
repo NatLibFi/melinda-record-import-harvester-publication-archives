@@ -39,10 +39,14 @@ import filterxml from 'filterxml';
 
 const {createLogger} = Utils;
 
-export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, earliestCatalogTime = moment(), onlyOnce = false}) {
+
+
+export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterISBN, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, failedHarvestFile, earliestCatalogTime = moment(), onlyOnce = false}) {
 	const logger = createLogger();
 	const parser = new xml2js.Parser();
-	//var recs = []; //Functionality to save harvested records, more at lines 157-158 and 167-169
+	let originalUrl = '';
+	let failedQueries = 0;
+	let combRecs = []; //Functionality to save harvested records, more at lines ~69, ~187&188, ~204-208
 
 	return process();
 
@@ -54,9 +58,17 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		const timeBeforeFetching = moment();
 
 		logger.log('debug', `Fetching records updated between ${pollChangeTime.format()} - ${timeBeforeFetching.format()}`);
-		await harvest(null);
+		try{
+			await harvest(null);
+		}catch(e){
+			logger.log('error', `Catched error in fetching, passing it trough to let system resolve what to do with it: \n ${e}`);
+			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later.
+			throw(e); 
+		}
 
 		if (!onlyOnce) {
+			combRecs = [];
+
 			logger.log('debug', `Waiting ${pollInterval / 1000} seconds before polling again`);
 			await setTimeoutPromise(pollInterval);
 			writePollChangeTimestamp(timeBeforeFetching);
@@ -82,8 +94,8 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 			}));
 		}
 
-		//ListRecords can only fetch 100 records at the time.
-		//Each cycle concats new records to old records and passes possible resumption token to new cycle
+		// ListRecords can only fetch 100 records at the time.
+		// Each cycle fetches max 100 records, filters records, passes them to callback and passes possible resumption token to new cycle
 		async function harvest(token) {
 			const url = new URL(harvestURL);
 
@@ -98,10 +110,21 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 					from: getPollChangeTime().utc().format(),
 					metadataPrefix: harvestMetadata
 				});
+				originalUrl = url.toString();
 			}
 			
-			//Connection errors bleed up from here
-			var response = await fetch(url.toString());
+			try{
+				var response = await fetch(url.toString());
+			}catch(e){
+				logger.log('warn', `Query failed: ${e}`);
+				failedQueries++;
+				if(failedQueries >= 5){
+					throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
+				}
+				return harvest(token || '')
+			}
+
+			failedQueries = 0;
 
 			if (response.status === HttpStatusCodes.OK) {
 				const result = await response.text();
@@ -109,7 +132,13 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				var validXML = null;
 
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				var patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
+				var patterns = [];				
+				if (harvestFilterISBN === 'true'){
+					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
+				} else {
+					patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
+				}
+				
 				filterxml(result, patterns, {x: harvestFilterNamespace}, (err, xmlOut, data) => {
 					if (err) {
 						throw err;
@@ -142,35 +171,46 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 								amountRecords = parsed['OAI-PMH'].ListRecords[0].record.length;
 							}
 
-							logger.log('debug', `Retrieved ${amountRecords} valid records`);
+							logger.log('debug', `Retrieved ${amountRecords} valid records from ${url.toString()}`);
 
 							resumptionToken = parsed['OAI-PMH'].ListRecords[0].resumptionToken;
 							logger.log('debug', `Resumption: ${JSON.stringify(resumptionToken)}`);
 						}
 					} catch (e) {
-						logger.error(e);
+						logger.log('warn', `Record parsing failed: ${e}`);
+						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
 					}
 				});
 				
 				// If valid records, send to saving
 				if(records.length > 0 ){
-					// var re = recs.concat(records);
-					// recs = re;
-					await recordsCallback(records);
+					// let comb = combRecs.concat(records);
+					// combRecs = comb;
+					try{
+						await recordsCallback(records);
+					}catch(e){
+						logger.log('warn', `Record callback failed: ${e}`);
+						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
+					}
+				}else if(records.length === 0){
+					logger.log('debug', 'No records found');
 				}
 
 				// If more records to be fetched from endpoint do so with resumption token
 				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
-					logger.log('debug', `New harvest with token ${resumptionToken[0]['_']}`);
 					return harvest(resumptionToken[0]['_']);
 				}
+				
+				// Use this to save all fetched records locally
 				// else{
-				// 	fs.writeFileSync('fetched.json', JSON.stringify(recs, undefined, 2));
+				// 	logger.log('info', 'Saving ' + combRecs.length + ' found records');
+				// 	fs.writeFileSync('fetched.json', JSON.stringify(combRecs, undefined, 2));
 				// }
 			} else if (response.status === HttpStatusCodes.NOT_FOUND) {
-				Logger.log('debug', 'No records found');
+				logger.log('debug', 'Not found');
 			}else{
-				throw new Error(`Received HTTP ${response.status} ${response.statusText}`);
+				let resBody = await response.text();
+				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
 			}
 		}
 	}
