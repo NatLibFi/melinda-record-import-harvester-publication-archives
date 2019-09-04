@@ -39,14 +39,12 @@ import filterxml from 'filterxml';
 
 const {createLogger} = Utils;
 
-
-
-export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterISBN, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, failedHarvestFile, earliestCatalogTime = moment(), onlyOnce = false}) {
+export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterISBN, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, failedHarvestFile, onlyOnce = false}) {
 	const logger = createLogger();
 	const parser = new xml2js.Parser();
 	let originalUrl = '';
 	let failedQueries = 0;
-	let combRecs = []; //Functionality to save harvested records, more at lines ~69, ~187&188, ~204-208
+	// Let combRecs = []; //Functionality to save harvested records, more at lines ~68, ~187&188, ~204-208
 
 	return process();
 
@@ -58,16 +56,16 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		const timeBeforeFetching = moment();
 
 		logger.log('debug', `Fetching records updated between ${pollChangeTime.format()} - ${timeBeforeFetching.format()}`);
-		try{
+		try {
 			await harvest(null);
-		}catch(e){
+		} catch (e) {
 			logger.log('error', `Catched error in fetching, passing it trough to let system resolve what to do with it: \n ${e}`);
 			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later.
-			throw(e); 
+			throw (e);
 		}
 
 		if (!onlyOnce) {
-			combRecs = [];
+			// CombRecs = [];
 
 			logger.log('debug', `Waiting ${pollInterval / 1000} seconds before polling again`);
 			await setTimeoutPromise(pollInterval);
@@ -112,16 +110,18 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				});
 				originalUrl = url.toString();
 			}
-			
-			try{
-				var response = await fetch(url.toString());
-			}catch(e){
+
+			let response = null;
+			try {
+				response = await fetch(url.toString());
+			} catch (e) {
 				logger.log('warn', `Query failed: ${e}`);
 				failedQueries++;
-				if(failedQueries >= 5){
+				if (failedQueries >= 5) {
 					throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
 				}
-				return harvest(token || '')
+
+				return harvest(token || '');
 			}
 
 			failedQueries = 0;
@@ -132,16 +132,17 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				var validXML = null;
 
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				var patterns = [];				
-				if (harvestFilterISBN === 'true'){
+				var patterns = [];
+				if (harvestFilterISBN === 'true') {
 					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
 				} else {
 					patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
 				}
-				
-				filterxml(result, patterns, {x: harvestFilterNamespace}, (err, xmlOut, data) => {
+
+				filterxml(result, patterns, {x: harvestFilterNamespace}, (err, xmlOut) => {
 					if (err) {
-						throw err;
+						logger.log('warn', `Records filtering deleted failed: ${err}`);
+						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
 					}
 
 					validXMLTemp = xmlOut;
@@ -149,9 +150,10 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 
 				// Filter out all records with header that have status="deleted"
 				patterns = ['x:header[@status="deleted"]/..'];
-				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, (err, xmlOut, data) => {
+				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, (err, xmlOut) => {
 					if (err) {
-						throw err;
+						logger.log('warn', `Records filtering deleted failed: ${err}`);
+						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
 					}
 
 					validXML = xmlOut;
@@ -163,8 +165,13 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				var resumptionToken = null;
 
 				parser.parseString(validXML, (err, parsed) => {
+					if (err) {
+						logger.log('warn', `Record XML parsing failed: ${err}`);
+						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
+					}
+
 					try {
-						// record can be empty because of filtering
+						// Record can be empty because of filtering
 						if (parsed['OAI-PMH'].ListRecords && parsed['OAI-PMH'].ListRecords[0]) {
 							if (parsed['OAI-PMH'].ListRecords[0].record) {
 								records = parsed['OAI-PMH'].ListRecords[0].record;
@@ -177,30 +184,30 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 							logger.log('debug', `Resumption: ${JSON.stringify(resumptionToken)}`);
 						}
 					} catch (e) {
-						logger.log('warn', `Record parsing failed: ${e}`);
+						logger.log('warn', `Record JSON parsing failed: ${e}`);
 						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
 					}
 				});
-				
+
 				// If valid records, send to saving
-				if(records.length > 0 ){
-					// let comb = combRecs.concat(records);
-					// combRecs = comb;
-					try{
+				if (records.length > 0) {
+					// Let comb = combRecs.concat(records);
+					// CombRecs = comb;
+					try {
 						await recordsCallback(records);
-					}catch(e){
+					} catch (e) {
 						logger.log('warn', `Record callback failed: ${e}`);
 						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
 					}
-				}else if(records.length === 0){
+				} else if (records.length === 0) {
 					logger.log('debug', 'No records found');
 				}
 
 				// If more records to be fetched from endpoint do so with resumption token
-				if (resumptionToken && resumptionToken[0] && resumptionToken[0]['_']) {
-					return harvest(resumptionToken[0]['_']);
+				if (resumptionToken && resumptionToken[0] && resumptionToken[0]._) {
+					return harvest(resumptionToken[0]._);
 				}
-				
+
 				// Use this to save all fetched records locally
 				// else{
 				// 	logger.log('info', 'Saving ' + combRecs.length + ' found records');
@@ -208,7 +215,7 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				// }
 			} else if (response.status === HttpStatusCodes.NOT_FOUND) {
 				logger.log('debug', 'Not found');
-			}else{
+			} else {
 				let resBody = await response.text();
 				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
 			}
