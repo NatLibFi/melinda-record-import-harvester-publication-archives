@@ -44,7 +44,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 	const parser = new xml2js.Parser();
 	let originalUrl = '';
 	let failedQueries = 0;
-	// Let combRecs = []; //Functionality to save harvested records, more at lines ~68, ~187&188, ~204-208
 
 	return process();
 
@@ -59,14 +58,11 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		try {
 			await harvest(null);
 		} catch (e) {
-			logger.log('error', `Catched error in fetching, passing it trough to let system resolve what to do with it: \n ${e}`);
 			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later.
 			throw (e);
 		}
 
 		if (!onlyOnce) {
-			// CombRecs = [];
-
 			logger.log('debug', `Waiting ${pollInterval / 1000} seconds before polling again`);
 			await setTimeoutPromise(pollInterval);
 			writePollChangeTimestamp(timeBeforeFetching);
@@ -134,7 +130,7 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
 				var patterns = [];
 				if (harvestFilterISBN === 'true') {
-					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
+					patterns = ['(x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..)']; // Also remove records without ISBN
 				} else {
 					patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
 				}
@@ -149,6 +145,7 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				});
 
 				// Filter out all records with header that have status="deleted"
+				// This has to be done in different filter as header namespace differs from record filtering
 				patterns = ['x:header[@status="deleted"]/..'];
 				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, (err, xmlOut) => {
 					if (err) {
@@ -191,8 +188,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 
 				// If valid records, send to saving
 				if (records.length > 0) {
-					// Let comb = combRecs.concat(records);
-					// CombRecs = comb;
 					try {
 						await recordsCallback(records);
 					} catch (e) {
@@ -207,12 +202,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				if (resumptionToken && resumptionToken[0] && resumptionToken[0]._) {
 					return harvest(resumptionToken[0]._);
 				}
-
-				// Use this to save all fetched records locally
-				// else{
-				// 	logger.log('info', 'Saving ' + combRecs.length + ' found records');
-				// 	fs.writeFileSync('fetched.json', JSON.stringify(combRecs, undefined, 2));
-				// }
 			} else if (response.status === HttpStatusCodes.NOT_FOUND) {
 				logger.log('debug', 'Not found');
 			} else {
