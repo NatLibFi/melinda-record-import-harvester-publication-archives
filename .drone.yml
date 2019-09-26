@@ -1,0 +1,27 @@
+kind: pipeline
+name: default
+steps:
+- name: generate-tags
+  image: quay.io/natlibfi/drone-gen-tags
+- name: test-init
+  image: busybox
+  commands:
+  - chmod o+w /drone/src
+- name: test
+  image: node:8
+  user: node  
+  commands:
+  - npm install
+  - npm test
+- name: docker 
+  image: plugins/docker
+  settings:
+    repo: quay.io/natlibfi/melinda-record-import-harvester-publication-archives
+    registry: quay.io
+    username:
+      from_secret: docker_username
+    password:
+      from_secret: docker_password
+  when:
+    branch: [master, test]
+event: [push, tag]

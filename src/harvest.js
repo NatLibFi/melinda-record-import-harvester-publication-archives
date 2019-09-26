@@ -129,8 +129,8 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
 				var patterns = [];
-				if (harvestFilterISBN === 'true') {
-					patterns = ['(x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..)']; // Also remove records without ISBN
+				if (harvestFilterISBN === true) {
+					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
 				} else {
 					patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
 				}
