@@ -124,11 +124,11 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 
 			if (response.status === HttpStatusCodes.OK) {
 				const result = await response.text();
-				var validXMLTemp = null;
-				var validXML = null;
+				let validXMLTemp = null;
+				let validXML = null;
 
 				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				var patterns = [];
+				let patterns = [];
 				if (harvestFilterISBN === true) {
 					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
 				} else {
@@ -157,9 +157,9 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				});
 
 				// Check out new records and save possible resumption token
-				var records = [];
-				var amountRecords = 0;
-				var resumptionToken = null;
+				let records = [];
+				let amountRecords = 0;
+				let resumptionToken = null;
 
 				parser.parseString(validXML, (err, parsed) => {
 					if (err) {
