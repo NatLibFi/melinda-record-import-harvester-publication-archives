@@ -47,7 +47,6 @@ These values have default values in projects configuration file src/config.js, a
   - What namespace in XML-DC is used 
   - default: 'http://kk/1.0'
 
-
 ### XML filtering
 XML filtering is used to:
 * Remove deleted records, these have status=deleted
