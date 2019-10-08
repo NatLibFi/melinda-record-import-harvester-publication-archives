@@ -27,7 +27,7 @@
 */
 
 import fs from 'fs';
-import {URL, URLSearchParams} from 'url';
+import {URL} from 'url';
 import moment from 'moment';
 import fetch from 'node-fetch';
 import HttpStatusCodes from 'http-status-codes';
@@ -97,7 +97,7 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 			} else {
 				url.searchParams.set('from', getPollChangeTime().utc().format());
 				url.searchParams.set('metadataPrefix', harvestMetadata);
-	
+
 				originalUrl = url.toString();
 			}
 
@@ -109,10 +109,10 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				const resBody = await response.text();
 				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
 			}
-			
+
 			// Handle valid response
-			async function handleResponseOk(){
-				const result = await response.text()
+			async function handleResponseOk() {
+				const result = await response.text();
 				let validXMLTemp = null;
 				let validXML = null;
 
