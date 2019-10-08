@@ -43,7 +43,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 	const logger = createLogger();
 	const parser = new xml2js.Parser();
 	let originalUrl = '';
-	let failedQueries = 0;
 
 	return process();
 
@@ -58,8 +57,8 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		try {
 			await harvest(null);
 		} catch (e) {
-			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later.
-			throw (e);
+			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later to restart harvesting.
+			throw e;
 		}
 
 		if (!onlyOnce) {
@@ -92,38 +91,28 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 		// Each cycle fetches max 100 records, filters records, passes them to callback and passes possible resumption token to new cycle
 		async function harvest(token) {
 			const url = new URL(harvestURL);
-
+			url.searchParams.set('verb', 'ListRecords');
 			if (token) {
-				url.search = new URLSearchParams({
-					verb: 'ListRecords',
-					resumptionToken: token
-				});
+				url.searchParams.set('resumptionToken', token);
 			} else {
-				url.search = new URLSearchParams({
-					verb: 'ListRecords',
-					from: getPollChangeTime().utc().format(),
-					metadataPrefix: harvestMetadata
-				});
+				url.searchParams.set('from', getPollChangeTime().utc().format());
+				url.searchParams.set('metadataPrefix', harvestMetadata);
+	
 				originalUrl = url.toString();
 			}
 
-			let response = null;
-			try {
-				response = await fetch(url.toString());
-			} catch (e) {
-				logger.log('warn', `Query failed: ${e}`);
-				failedQueries++;
-				if (failedQueries >= 5) {
-					throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
-				}
-
-				return harvest(token || '');
-			}
-
-			failedQueries = 0;
+			const response = await fetch(url.toString());
 
 			if (response.status === HttpStatusCodes.OK) {
-				const result = await response.text();
+				await handleResponseOk(response);
+			} else {
+				const resBody = await response.text();
+				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
+			}
+			
+			// Handle valid response
+			async function handleResponseOk(){
+				const result = await response.text()
 				let validXMLTemp = null;
 				let validXML = null;
 
@@ -202,11 +191,6 @@ export default async function ({recordsCallback, harvestURL, harvestMetadata, ha
 				if (resumptionToken && resumptionToken[0] && resumptionToken[0]._) {
 					return harvest(resumptionToken[0]._);
 				}
-			} else if (response.status === HttpStatusCodes.NOT_FOUND) {
-				logger.log('debug', 'Not found');
-			} else {
-				let resBody = await response.text();
-				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
 			}
 		}
 	}
