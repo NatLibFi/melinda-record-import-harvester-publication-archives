@@ -3,5 +3,5 @@ node_modules
 coverage
 dist
 .nyc_output
-.env
+.env*
 package-lock.json

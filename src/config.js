@@ -32,7 +32,7 @@ const {readEnvironmentVariable, parseBoolean} = Utils;
 
 export const POLL_INTERVAL = readEnvironmentVariable('POLL_INTERVAL', {defaultValue: 10000, format: v => Number(v)});
 
-export const POLL_CHANGE_TIMESTAMP = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: '2019-01-01T10:00:00+02:00'});
+export const POLL_CHANGE_TIMESTAMP = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: ''});
 export const CHANGE_TIMESTAMP_FILE = readEnvironmentVariable('CHANGE_TIMESTAMP_FILE', {defaultValue: '.poll-change-timestamp.json'});
 export const FAILED_HARVEST_FILE = readEnvironmentVariable('FAILED_HARVEST_FILE', {defaultValue: '.failed-harvest-log.json'});
 
