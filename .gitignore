@@ -3,7 +3,7 @@ node_modules
 coverage
 dist
 .nyc_output
-env*
+.env*
 .poll-change-timestamp.json
 .failed-harvest-log.json
 fetched*
