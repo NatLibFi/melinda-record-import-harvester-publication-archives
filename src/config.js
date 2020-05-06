@@ -30,14 +30,20 @@ import {Utils} from '@natlibfi/melinda-commons';
 
 const {readEnvironmentVariable, parseBoolean} = Utils;
 
-export const POLL_INTERVAL = readEnvironmentVariable('POLL_INTERVAL', {defaultValue: 10000, format: v => Number(v)});
+export const name = 'melinda-record-import-harvester-publication-archieves';
+// Not configurable 'cause no support in code for other formats
+export const metadataPrefix = 'kk';
 
-export const POLL_CHANGE_TIMESTAMP = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: ''});
-export const CHANGE_TIMESTAMP_FILE = readEnvironmentVariable('CHANGE_TIMESTAMP_FILE', {defaultValue: '.poll-change-timestamp.json'});
-export const FAILED_HARVEST_FILE = readEnvironmentVariable('FAILED_HARVEST_FILE', {defaultValue: '.failed-harvest-log.json'});
+export const pollInterval = readEnvironmentVariable('POLL_INTERVAL', {defaultValue: 10000, format: v => Number(v)});
+export const pollChangeTimestamp = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: ''});
+export const changeTimestampFile = readEnvironmentVariable('CHANGE_TIMESTAMP_FILE', {defaultValue: '.poll-change-timestamp.json'});
+export const recordFilter = readEnvironmentVariable('FILTER', {defaultValue: [], format: JSON.parse});
 
-export const HARVESTING_API_URL = readEnvironmentVariable('HARVESTING_API_URL', {defaultValue: 'http://tampub.uta.fi/oai/request'});
-export const HARVESTING_API_METADATA = readEnvironmentVariable('HARVESTING_API_METADATA', {defaultValue: 'kk'});
-export const HARVESTING_API_FILTER = readEnvironmentVariable('HARVESTING_API_FILTER', {defaultValue: '@qualifier="issued" and @value>"2016"'});
-export const HARVESTING_API_FILTER_ISBN = parseBoolean(readEnvironmentVariable('HARVESTING_API_FILTER_ISBN', {defaultValue: 'true'}));
-export const HARVESTING_API_FILTER_NAMESPACE = readEnvironmentVariable('HARVESTING_API_FILTER_NAMESPACE', {defaultValue: 'http://kk/1.0'});
+export const recordImportApiUrl = readEnvironmentVariable('RECORD_IMPORT_API_URL');
+export const recordImportApiUsername = readEnvironmentVariable('RECORD_IMPORT_API_USERNAME');
+export const recordImportApiPassword = readEnvironmentVariable('RECORD_IMPORT_API_PASSWORD');
+
+export const harvestingApiUrl = readEnvironmentVariable('HARVESTING_API_URL');
+
+export const filterIsbnOnly = readEnvironmentVariable('FILTER_ISBN_ONLY', {defaultValue: false, format: parseBoolean});
+export const filterIssuedYear = readEnvironmentVariable('FILTER_ISSUED_YEAR', {defaultValue: 0, format: v => Number(v)});

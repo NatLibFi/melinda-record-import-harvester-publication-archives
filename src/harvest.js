@@ -26,172 +26,192 @@
 *
 */
 
+/* eslint-disable no-unused-vars, no-console */
+
 import fs from 'fs';
 import {URL} from 'url';
 import moment from 'moment';
 import fetch from 'node-fetch';
+import {promisify} from 'util';
 import HttpStatusCodes from 'http-status-codes';
-import nodeUtils from 'util';
 import {Utils} from '@natlibfi/melinda-commons';
-
-import xml2js from 'xml2js';
-import filterxml from 'filterxml';
+import {Parser, Builder} from 'xml2js';
 
 const {createLogger} = Utils;
 
-export default async function ({recordsCallback, harvestURL, harvestMetadata, harvestFilter, harvestFilterISBN, harvestFilterNamespace, pollInterval, pollChangeTimestamp, changeTimestampFile, failedHarvestFile, onlyOnce = false}) {
-	const logger = createLogger();
-	const parser = new xml2js.Parser();
-	let originalUrl = '';
+export default function ({recordsCallback, harvestingApiUrl, metadataPrefix,
+  pollInterval, pollChangeTimestamp,
+  filterIsbnOnly, filterIssuedYear,
+  changeTimestampFile, onlyOnce = false}) {
+  const logger = createLogger();
+  const setTimeoutPromise = promisify(setTimeout);
 
-	return process();
+  return process();
 
-	async function process({pollChangeTime} = {}) {
-		const setTimeoutPromise = nodeUtils.promisify(setTimeout);
+  async function process({pollChangeTime = getPollChangeTime()} = {}) {
+    const timeBeforeFetching = moment();
 
-		pollChangeTime = pollChangeTime || getPollChangeTime();
+    logger.log('info', `Fetching records updated between ${pollChangeTime.format()} - ${timeBeforeFetching.format()}`);
 
-		const timeBeforeFetching = moment();
+    await harvest();
 
-		logger.log('debug', `Fetching records updated between ${pollChangeTime.format()} - ${timeBeforeFetching.format()}`);
-		try {
-			await harvest(null);
-		} catch (e) {
-			fs.writeFileSync(failedHarvestFile, e); // If failure happens on n:th cycle (resumption) previous cycles (n-1) are already sent. Save data of harvest to file just in case used later to restart harvesting.
-			throw e;
-		}
+    if (onlyOnce) {
+      return;
+    }
 
-		if (!onlyOnce) {
-			logger.log('debug', `Waiting ${pollInterval / 1000} seconds before polling again`);
-			await setTimeoutPromise(pollInterval);
-			writePollChangeTimestamp(timeBeforeFetching);
-			return process({pollChangeTime: timeBeforeFetching.add(1, 'seconds')});
-		}
+    logger.log('info', `Waiting ${pollInterval / 1000} seconds before polling again`);
 
-		function getPollChangeTime() {
-			if (fs.existsSync(changeTimestampFile)) {
-				const data = JSON.parse(fs.readFileSync(changeTimestampFile, 'utf8'));
-				return moment(data.timestamp);
-			}
+    await setTimeoutPromise(pollInterval);
+    writePollChangeTimestamp(timeBeforeFetching);
+    return process({pollChangeTime: timeBeforeFetching.add(1, 'seconds')});
 
-			if (pollChangeTimestamp) {
-				return moment(pollChangeTimestamp);
-			}
+    function writePollChangeTimestamp(time) {
+      fs.writeFileSync(changeTimestampFile, JSON.stringify({
+        timestamp: time.format()
+      }));
+    }
 
-			return moment();
-		}
+    async function harvest(token) {
+      const url = generateUrl();
+      const response = await fetch(url);
 
-		function writePollChangeTimestamp(time) {
-			fs.writeFileSync(changeTimestampFile, JSON.stringify({
-				timestamp: time.format()
-			}));
-		}
+      if (response.status === HttpStatusCodes.OK) {
+        logger.log('debug', 'Got response');
+        return processResponse(await response.text());
+      }
 
-		// ListRecords can only fetch 100 records at the time.
-		// Each cycle fetches max 100 records, filters records, passes them to callback and passes possible resumption token to new cycle
-		async function harvest(token) {
-			const url = new URL(harvestURL);
-			url.searchParams.set('verb', 'ListRecords');
-			if (token) {
-				url.searchParams.set('resumptionToken', token);
-			} else {
-				url.searchParams.set('from', getPollChangeTime().utc().format());
-				url.searchParams.set('metadataPrefix', harvestMetadata);
+      throw new Error(`HTTP error. URL: ${url}, payload: ${await response.text()}`);
 
-				originalUrl = url.toString();
-			}
+      function generateUrl() {
+        const params = new URLSearchParams(token ? {
+          verb: 'ListRecords',
+          resumptionToken: token
+        } : {
+          verb: 'ListRecords',
+          from: getPollChangeTime().toISOString(),
+          metadataPrefix
+        });
 
-			const response = await fetch(url.toString());
+        return new URL(`${harvestingApiUrl}?${params.toString()}`);
+      }
 
-			if (response.status === HttpStatusCodes.OK) {
-				await handleResponseOk(response);
-			} else {
-				const resBody = await response.text();
-				throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, responseStatus: response.status, responseText: response.statusText, responseBody: resBody}, null, 2));
-			}
+      async function processResponse(data) {
+        const obj = await parse();
+        const resumptionToken = getResumptionToken();
 
-			// Handle valid response
-			async function handleResponseOk() {
-				const result = await response.text();
-				let validXMLTemp = null;
-				let validXML = null;
+        if (obj['OAI-PMH'].error) { // eslint-disable-line functional/no-conditional-statement
+          throw new Error(`URL: ${url}: ${JSON.stringify(obj, undefined, 2)}`);
+        }
 
-				// Filter out all records that do not have example '@qualifier="available"' in some field (or does not have two fields '@qualifier="issued" and @value>"2018"')
-				let patterns = [];
-				if (harvestFilterISBN === true) {
-					patterns = ['x:metadata[not(x:field[' + harvestFilter + ']) or not(x:field[@qualifier="isbn"])]/../..']; // Also remove records without ISBN
-				} else {
-					patterns = ['x:metadata[not(x:field[' + harvestFilter + '])]/../..'];
-				}
+        const filtered = filter();
+        const xml = build();
 
-				filterxml(result, patterns, {x: harvestFilterNamespace}, (err, xmlOut) => {
-					if (err) {
-						logger.log('warn', `Records filtering deleted failed: ${err}`);
-						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
-					}
+        logger.log('debug', `${getRecordCount(filtered)}/${getRecordCount(obj)} records passed the filter`);
 
-					validXMLTemp = xmlOut;
-				});
+        if (getRecordCount(filtered) > 0) {
+          await recordsCallback(xml);
+          return resumptionToken ? harvest(resumptionToken) : undefined;
+        }
 
-				// Filter out all records with header that have status="deleted"
-				// This has to be done in different filter as header namespace differs from record filtering
-				patterns = ['x:header[@status="deleted"]/..'];
-				filterxml(validXMLTemp, patterns, {x: 'http://www.openarchives.org/OAI/2.0/'}, (err, xmlOut) => {
-					if (err) {
-						logger.log('warn', `Records filtering deleted failed: ${err}`);
-						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
-					}
+        return resumptionToken ? harvest(resumptionToken) : undefined;
 
-					validXML = xmlOut;
-				});
+        function getRecordCount(obj) {
+          return obj['OAI-PMH'].ListRecords[0].record.length;
+        }
 
-				// Check out new records and save possible resumption token
-				let records = [];
-				let amountRecords = 0;
-				let resumptionToken = null;
+        function getResumptionToken() {
+          const [container] = obj['OAI-PMH'].ListRecords;
+          return container.resumptionToken ? container.resumptionToken._ : undefined;
+        }
 
-				parser.parseString(validXML, (err, parsed) => {
-					if (err) {
-						logger.log('warn', `Record XML parsing failed: ${err}`);
-						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: err}, null, 2));
-					}
+        function parse() {
+          return new Promise((resolve, reject) => {
+            new Parser().parseString(data, (err, obj) => {
+              if (err) {
+                return reject(err);
+              }
 
-					try {
-						// Record can be empty because of filtering
-						if (parsed['OAI-PMH'].ListRecords && parsed['OAI-PMH'].ListRecords[0]) {
-							if (parsed['OAI-PMH'].ListRecords[0].record) {
-								records = parsed['OAI-PMH'].ListRecords[0].record;
-								amountRecords = parsed['OAI-PMH'].ListRecords[0].record.length;
-							}
+              resolve(obj);
+            });
+          });
+        }
 
-							logger.log('debug', `Retrieved ${amountRecords} valid records from ${url.toString()}`);
+        function filter() {
+          const records = obj['OAI-PMH'].ListRecords[0].record.filter(filterRecords);
 
-							resumptionToken = parsed['OAI-PMH'].ListRecords[0].resumptionToken;
-							logger.log('debug', `Resumption: ${JSON.stringify(resumptionToken)}`);
-						}
-					} catch (e) {
-						logger.log('warn', `Record JSON parsing failed: ${e}`);
-						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
-					}
-				});
+          return {
+            ...obj,
+            'OAI-PMH': {
+              ListRecords: [{record: records}]
+            }
+          };
 
-				// If valid records, send to saving
-				if (records.length > 0) {
-					try {
-						await recordsCallback(records);
-					} catch (e) {
-						logger.log('warn', `Record callback failed: ${e}`);
-						throw new Error(JSON.stringify({time: moment(), query: url.toString(), queryOriginal: originalUrl, originalError: e}, null, 2));
-					}
-				} else if (records.length === 0) {
-					logger.log('debug', 'No records found');
-				}
+          function filterRecords({header, metadata}) {
+            if (isDeleted()) {
+              return false;
+            }
 
-				// If more records to be fetched from endpoint do so with resumption token
-				if (resumptionToken && resumptionToken[0] && resumptionToken[0]._) {
-					return harvest(resumptionToken[0]._);
-				}
-			}
-		}
-	}
+            if (filterIsbnOnly && hasIsbn() === false) {
+              return false;
+            }
+
+            if (filterIssuedYear && issuedBefore()) {
+              return false;
+            }
+
+            return true;
+
+            function isDeleted() {
+              return '$' in header[0] && header[0].$.status === 'deleted';
+            }
+
+            function hasIsbn() {
+              return getFields().some(({qualifier}) => qualifier === 'isbn');
+            }
+
+            function issuedBefore() {
+              return getFields().some(({qualifier, value}) => qualifier === 'issued' && Number(value) < filterIssuedYear);
+            }
+
+            function getFields() {
+              return Object.values(metadata[0]['kk:metadata'][0]['kk:field'])
+                .filter(obj => '$' in obj)
+                .map(({$}) => $);
+            }
+          }
+        }
+
+        function build() {
+          try {
+            return new Builder({
+              xmldec: {
+                version: '1.0',
+                encoding: 'UTF-8',
+                standalone: false
+              },
+              renderOpts: {
+                pretty: true,
+                indent: '\t'
+              }
+            }).buildObject(filtered);
+          } catch (err) {
+            throw new Error(`XML conversion failed ${err.message} for query: ${JSON.stringify(filtered)}`);
+          }
+        }
+      }
+    }
+  }
+
+  function getPollChangeTime() {
+    if (fs.existsSync(changeTimestampFile)) {
+      const {timestamp} = JSON.parse(fs.readFileSync(changeTimestampFile, 'utf8'));
+      return moment(timestamp);
+    }
+
+    if (pollChangeTimestamp) {
+      return moment(pollChangeTimestamp);
+    }
+
+    return moment();
+  }
 }

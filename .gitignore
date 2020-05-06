@@ -5,6 +5,3 @@ dist
 .nyc_output
 .env*
 .poll-change-timestamp.json
-.failed-harvest-log.json
-fetched*
-out/*

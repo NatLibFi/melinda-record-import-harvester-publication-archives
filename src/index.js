@@ -26,7 +26,6 @@
 *
 */
 
-'use strict';
 
 import {Harvester} from '@natlibfi/melinda-record-import-commons';
 import createHarvestCallback from './harvest';
@@ -34,22 +33,13 @@ import createHarvestCallback from './harvest';
 const {startHarvester} = Harvester;
 
 import {
-	HARVESTING_API_URL, HARVESTING_API_METADATA, HARVESTING_API_FILTER,
-	HARVESTING_API_FILTER_ISBN, HARVESTING_API_FILTER_NAMESPACE,
-	POLL_INTERVAL, POLL_CHANGE_TIMESTAMP, CHANGE_TIMESTAMP_FILE, FAILED_HARVEST_FILE
+  harvestingApiUrl, metadataPrefix,
+  filterIsbnOnly, filterIssuedYear,
+  pollInterval, pollChangeTimestamp, changeTimestampFile
 } from './config';
 
-startHarvester(async ({recordsCallback}) => {
-	return createHarvestCallback({
-		recordsCallback,
-		harvestURL: HARVESTING_API_URL,
-		harvestMetadata: HARVESTING_API_METADATA,
-		harvestFilter: HARVESTING_API_FILTER,
-		harvestFilterISBN: HARVESTING_API_FILTER_ISBN,
-		harvestFilterNamespace: HARVESTING_API_FILTER_NAMESPACE,
-		pollInterval: POLL_INTERVAL,
-		pollChangeTimestamp: POLL_CHANGE_TIMESTAMP,
-		changeTimestampFile: CHANGE_TIMESTAMP_FILE,
-		failedHarvestFile: FAILED_HARVEST_FILE
-	});
-});
+startHarvester(({recordsCallback}) => createHarvestCallback({
+  recordsCallback, harvestingApiUrl, metadataPrefix,
+  filterIsbnOnly, filterIssuedYear,
+  pollInterval, pollChangeTimestamp, changeTimestampFile
+}));
