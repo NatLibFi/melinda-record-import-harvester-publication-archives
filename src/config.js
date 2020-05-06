@@ -38,9 +38,9 @@ export const pollInterval = readEnvironmentVariable('POLL_INTERVAL', {defaultVal
 export const pollChangeTimestamp = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: ''});
 export const changeTimestampFile = readEnvironmentVariable('CHANGE_TIMESTAMP_FILE', {defaultValue: '.poll-change-timestamp.json'});
 
-export const recordImportApiUrl = readEnvironmentVariable('RECORD_IMPORT_API_URL');
-export const recordImportApiUsername = readEnvironmentVariable('RECORD_IMPORT_API_USERNAME');
-export const recordImportApiPassword = readEnvironmentVariable('RECORD_IMPORT_API_PASSWORD');
+export const recordImportApiUrl = readEnvironmentVariable('API_URL');
+export const recordImportApiUsername = readEnvironmentVariable('API_USERNAME');
+export const recordImportApiPassword = readEnvironmentVariable('API_PASSWORD');
 
 export const harvestingApiUrl = readEnvironmentVariable('HARVESTING_API_URL');
 
