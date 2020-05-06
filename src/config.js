@@ -37,7 +37,6 @@ export const metadataPrefix = 'kk';
 export const pollInterval = readEnvironmentVariable('POLL_INTERVAL', {defaultValue: 10000, format: v => Number(v)});
 export const pollChangeTimestamp = readEnvironmentVariable('POLL_CHANGE_TIMESTAMP', {defaultValue: ''});
 export const changeTimestampFile = readEnvironmentVariable('CHANGE_TIMESTAMP_FILE', {defaultValue: '.poll-change-timestamp.json'});
-export const recordFilter = readEnvironmentVariable('FILTER', {defaultValue: [], format: JSON.parse});
 
 export const recordImportApiUrl = readEnvironmentVariable('RECORD_IMPORT_API_URL');
 export const recordImportApiUsername = readEnvironmentVariable('RECORD_IMPORT_API_USERNAME');
