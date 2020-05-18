@@ -22,7 +22,6 @@
 	"scripts": {
 		"start": "node dist/index",
 		"cli": "node dist/cli",
-		"check-deps": "npm-check -s",
 		"lint": "eslint src",
 		"lint:dev": "eslint --fix src",
 		"test": "npm run lint",
@@ -46,11 +45,11 @@
 		"@babel/node": "^7.8.7",
 		"@babel/preset-env": "^7.9.6",
 		"@babel/register": "^7.9.0",
-		"@natlibfi/eslint-config-melinda-backend": ">1.0.0-alpha.1",
+		"@natlibfi/eslint-config-melinda-backend": "^1.0.0",
 		"babel-eslint": "^10.1.0",
 		"cross-env": "^7.0.2",
-		"eslint": "^6.8.0",
-		"nodemon": "^2.0.3",
+		"eslint": "^7.0.0",
+		"nodemon": "^2.0.4",
 		"npm-check": "^5.9.2"
 	},
 	"eslintConfig": {
