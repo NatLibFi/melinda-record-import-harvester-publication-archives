@@ -35,8 +35,8 @@
 		"@natlibfi/melinda-commons": "^8.0.0",
 		"@natlibfi/melinda-record-import-commons": "^8.0.0",
 		"http-status-codes": "^1.4.0",
-		"moment": "^2.25.3",
-		"node-fetch": "^2.6.0",
+		"node-fetch": "^2.6.7",
+		"moment": "^2.29.4",
 		"xml2js": "^0.4.23"
 	},
 	"devDependencies": {
