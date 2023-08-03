@@ -27,7 +27,6 @@
 		"test": "npm run lint",
 		"test:dev": "npm run lint:dev",
 		"build": "babel src --source-maps --delete-dir-on-start --out-dir=dist --minified",
-		"build:dev": "npm run build && npm run check-deps",
 		"watch": "cross-env DEBUG=1 NODE_ENV=debug nodemon --watch src --exec 'npm test:dev'",
 		"watch:build": "cross-env DEBUG=1 NODE_ENV=debug nodemon --watch src --exec 'babel-node src/index.js'"
 	},
@@ -49,8 +48,7 @@
 		"babel-eslint": "^10.1.0",
 		"cross-env": "^7.0.3",
 		"eslint": "^8.46.0",
-		"nodemon": "^3.0.1",
-		"npm-check": "^6.0.1"
+		"nodemon": "^3.0.1"
 	},
 	"eslintConfig": {
 		"extends": "@natlibfi/melinda-backend"
