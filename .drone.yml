@@ -8,7 +8,7 @@ steps:
 - name: test-init
   image: busybox
   commands:
-  - chmod o+w /drone/src
+  - chmod o+wr /drone/src
 - name: test
   image: node:18
   user: node
@@ -35,6 +35,6 @@ data: kT7/L0vjXTwlpSiyaRcih3G4T094lb9nqSh27aPgHo30f8prFMUrltVbKt9AFBEXzQ6ZG1TNsw
 
 ---
 kind: signature
-hmac: 9eae67be84e9f192de13c62552daa532220782de16dbe2450d5d50e66f601d96
+hmac: c27275f557ed2d8dd857fdc144b238c659fc01e122918bc2ec0e297f1d78608b
 
 ...
