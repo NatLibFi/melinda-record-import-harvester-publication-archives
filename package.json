@@ -45,10 +45,10 @@
 		"@babel/node": "^7.22.6",
 		"@babel/preset-env": "^7.22.9",
 		"@babel/register": "^7.22.5",
-		"@natlibfi/eslint-config-melinda-backend": "^1.0.0",
+		"@natlibfi/eslint-config-melinda-backend": "^3.0.1",
 		"babel-eslint": "^10.1.0",
 		"cross-env": "^7.0.3",
-		"eslint": "^7.0.0",
+		"eslint": "^8.46.0",
 		"nodemon": "^2.0.4",
 		"npm-check": "^6.0.1"
 	},
