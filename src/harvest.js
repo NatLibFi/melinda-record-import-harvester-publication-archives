@@ -105,7 +105,7 @@ export default function ({recordsCallback, harvestingApiUrl, metadataPrefix,
 
         const resumptionToken = getResumptionToken();
 
-        if (obj['OAI-PMH'].error) { // eslint-disable-line functional/no-conditional-statement
+        if (obj['OAI-PMH'].error) { // eslint-disable-line functional/no-conditional-statements
           throw new Error(`URL: ${url}: ${JSON.stringify(obj, undefined, 2)}`);
         }
 
