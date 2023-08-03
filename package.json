@@ -45,7 +45,7 @@
 		"@babel/preset-env": "^7.22.9",
 		"@babel/register": "^7.22.5",
 		"@natlibfi/eslint-config-melinda-backend": "^3.0.1",
-		"babel-eslint": "^10.1.0",
+		"@babel/eslint-parser": "^7.22.9",
 		"cross-env": "^7.0.3",
 		"eslint": "^8.46.0",
 		"nodemon": "^3.0.1"
