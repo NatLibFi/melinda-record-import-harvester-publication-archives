@@ -8,12 +8,12 @@ steps:
   commands:
   - chmod o+w /drone/src
 - name: test
-  image: node:12
-  user: node  
+  image: node:18
+  user: node
   commands:
   - npm install
   - npm test
-- name: docker 
+- name: docker
   image: plugins/docker
   settings:
     repo: quay.io/natlibfi/melinda-record-import-harvester-publication-archives
