@@ -1,4 +1,6 @@
+---
 kind: pipeline
+type: docker
 name: default
 steps:
 - name: generate-tags
@@ -6,14 +8,14 @@ steps:
 - name: test-init
   image: busybox
   commands:
-  - chmod o+w /drone/src
+  - chmod a+wr -R /drone/src/
 - name: test
-  image: node:12
-  user: node  
+  image: node:18
+  user: node
   commands:
   - npm install
   - npm test
-- name: docker 
+- name: docker
   image: plugins/docker
   settings:
     repo: quay.io/natlibfi/melinda-record-import-harvester-publication-archives
@@ -31,3 +33,8 @@ kind: secret
 name: docker_password
 data: kT7/L0vjXTwlpSiyaRcih3G4T094lb9nqSh27aPgHo30f8prFMUrltVbKt9AFBEXzQ6ZG1TNswHm3tFkki4E+7YdmnHKAtSLKX//KLS5skFHJzMRxytP9uB8RfU=
 
+---
+kind: signature
+hmac: e0ee5d148e9512ea5015288eb864f7a1863bfc3498b5c57898ed22d851b2814e
+
+...

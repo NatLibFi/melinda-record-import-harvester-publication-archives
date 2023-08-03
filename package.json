@@ -14,10 +14,10 @@
 		"url": "git@github.com:natlibfi/melinda-record-import-harvester-publication-archives.git"
 	},
 	"license": "AGPL-3.0+",
-	"version": "1.0.0",
+	"version": "2.0.0-alpha.3",
 	"main": "./dist/index.js",
 	"engines": {
-		"node": ">=12"
+		"node": ">=18"
 	},
 	"scripts": {
 		"start": "node dist/index",
@@ -27,30 +27,28 @@
 		"test": "npm run lint",
 		"test:dev": "npm run lint:dev",
 		"build": "babel src --source-maps --delete-dir-on-start --out-dir=dist --minified",
-		"build:dev": "npm run build && npm run check-deps",
 		"watch": "cross-env DEBUG=1 NODE_ENV=debug nodemon --watch src --exec 'npm test:dev'",
 		"watch:build": "cross-env DEBUG=1 NODE_ENV=debug nodemon --watch src --exec 'babel-node src/index.js'"
 	},
 	"dependencies": {
-		"@natlibfi/melinda-commons": "^8.0.0",
-		"@natlibfi/melinda-record-import-commons": "^8.0.0",
-		"http-status-codes": "^1.4.0",
-		"moment": "^2.25.3",
-		"node-fetch": "^2.6.0",
-		"xml2js": "^0.4.23"
+		"@natlibfi/melinda-commons": "^13.0.5",
+		"@natlibfi/melinda-record-import-commons": "^10.1.6",
+		"http-status-codes": "^2.2.0",
+		"node-fetch": "^2.6.12",
+		"moment": "^2.29.4",
+		"xml2js": "^0.6.2"
 	},
 	"devDependencies": {
-		"@babel/cli": "^7.8.4",
-		"@babel/core": "^7.9.6",
-		"@babel/node": "^7.8.7",
-		"@babel/preset-env": "^7.9.6",
-		"@babel/register": "^7.9.0",
-		"@natlibfi/eslint-config-melinda-backend": "^1.0.0",
-		"babel-eslint": "^10.1.0",
-		"cross-env": "^7.0.2",
-		"eslint": "^7.0.0",
-		"nodemon": "^2.0.4",
-		"npm-check": "^5.9.2"
+		"@babel/cli": "^7.22.9",
+		"@babel/core": "^7.22.9",
+		"@babel/node": "^7.22.6",
+		"@babel/preset-env": "^7.22.9",
+		"@babel/register": "^7.22.5",
+		"@natlibfi/eslint-config-melinda-backend": "^3.0.1",
+		"@babel/eslint-parser": "^7.22.9",
+		"cross-env": "^7.0.3",
+		"eslint": "^8.46.0",
+		"nodemon": "^3.0.1"
 	},
 	"eslintConfig": {
 		"extends": "@natlibfi/melinda-backend"

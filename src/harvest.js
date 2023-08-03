@@ -97,16 +97,22 @@ export default function ({recordsCallback, harvestingApiUrl, metadataPrefix,
 
       async function processResponse(data) {
         const obj = await parse();
+
+        if (hasNoRecords()) {
+          logger.log('info', `The query returned no records`);
+          return;
+        }
+
         const resumptionToken = getResumptionToken();
 
-        if (obj['OAI-PMH'].error) { // eslint-disable-line functional/no-conditional-statement
+        if (obj['OAI-PMH'].error) { // eslint-disable-line functional/no-conditional-statements
           throw new Error(`URL: ${url}: ${JSON.stringify(obj, undefined, 2)}`);
         }
 
         const filtered = filter();
         const xml = build();
 
-        logger.log('debug', `${getRecordCount(filtered)}/${getRecordCount(obj)} records passed the filter`);
+        logger.log('info', `${getRecordCount(filtered)}/${getRecordCount(obj)} records passed the filter`);
 
         if (getRecordCount(filtered) > 0) {
           await recordsCallback(xml);
@@ -114,6 +120,10 @@ export default function ({recordsCallback, harvestingApiUrl, metadataPrefix,
         }
 
         return resumptionToken ? harvest(resumptionToken) : undefined;
+
+        function hasNoRecords() {
+          return 'error' in obj['OAI-PMH'] && obj['OAI-PMH'].error[0].$.code === 'noRecordsMatch';
+        }
 
         function getRecordCount(obj) {
           return obj['OAI-PMH'].ListRecords[0].record.length;
