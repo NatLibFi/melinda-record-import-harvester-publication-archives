@@ -76,6 +76,8 @@ jobs:
   #   name: Quay.io image builder & publisher
   #   needs: [build-node-versions, njsscan]
   #   runs-on: ubuntu-latest
+  #   if: ${{ github.triggering_actor != 'dependabot[bot]' }}   # ignore the pull request which comes from user dependabot, because it does not access to secrets
+
 
   #   steps:
   #     - uses: actions/checkout@v3
