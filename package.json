@@ -20,9 +20,9 @@
 		"node": ">=18"
 	},
 	"scripts": {
-		"start": "node dist/index",
-		"cli": "node dist/cli",
-		"lint": "eslint src",
+		"start": "node ./dist/index",
+		"cli": "node ./dist/cli",
+		"lint": "eslint ./src",
 		"lint:dev": "eslint --fix src",
 		"test": "npm run lint",
 		"test:dev": "npm run lint:dev",
