@@ -3,7 +3,7 @@
 Publication archives record harvester for the Melinda record batch import system. Harvests Dublic Core records from [publication archives](https://www.kansalliskirjasto.fi/en/services/system-platform-services/publication-archive-service).
 ## License and copyright
 
-Copyright (c) 2019, 2023 **University Of Helsinki (The National Library Of Finland)**
+Copyright (c) 2019, 2023-2024 **University Of Helsinki (The National Library Of Finland)**
 
 This project's source code is licensed under the terms of **GNU Affero General Public License Version 3** or any later version.
 
