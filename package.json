@@ -14,7 +14,7 @@
 		"url": "git@github.com:natlibfi/melinda-record-import-harvester-publication-archives.git"
 	},
 	"license": "MIT",
-	"version": "2.0.5",
+	"version": "2.0.6-alpha.1",
 	"main": "./dist/index.js",
 	"engines": {
 		"node": ">=18"
